@@ -8,7 +8,7 @@ URL = "https://restaurants.subway.com"
 
 OUTPUT_FILE = "subway_locations_{}.csv".format(date.today())
 
-executor = concurrent.futures.ProcessPoolExecutor()
+#executor = concurrent.futures.ThreadPoolExecutor(max_workers=128)
 
 class SubwayLocation:
   def __init__(self, name, url, longitude, latitude, address1, address2, city, state, zipcode, country, phone):
@@ -61,10 +61,11 @@ def parse_location(soup, url):
 
 def spawn_spiders(baseurl, search_links, fullurl):
   start = time.perf_counter()
-  spiders = [executor.submit(get_links, baseurl, link) for link in search_links]
-  results = []
-  for spi in concurrent.futures.as_completed(spiders):
-    results.append(spi.result())
+  #spiders = [executor.submit(get_links, baseurl, link) for link in search_links]
+  #results = []
+  #for spi in concurrent.futures.as_completed(spiders):
+  #  results.append(spi.result())
+  results = [res for link in search_links for res in get_links(baseurl, link)]
   end = time.perf_counter()
   print(f'BATCH FINISHED IN "{round(end-start, 10)}" SECONDS - {fullurl}')
   return results
@@ -103,4 +104,4 @@ if __name__ == '__main__':
     result_file.write(res.output())
     result_file.write("\n")
   result_file.close()
-  executor.shutdown()
+  #executor.shutdown()
