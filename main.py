@@ -1,11 +1,14 @@
+import time
+from datetime import date
 import requests
 from bs4 import BeautifulSoup
+import concurrent.futures
 
 URL = "https://restaurants.subway.com"
 
-OUTPUT_FILE = "subway_locations.csv"
+OUTPUT_FILE = "subway_locations_{}.csv".format(date.today())
 
-result_file = open(OUTPUT_FILE, "w")
+executor = concurrent.futures.ProcessPoolExecutor()
 
 class SubwayLocation:
   def __init__(self, name, url, longitude, latitude, address1, address2, city, state, zipcode, country, phone):
@@ -53,37 +56,51 @@ def parse_location(soup, url):
   phoneelem = get_from_selector(soup, ".Core .Phone-link")
   phone = "" if phoneelem is None else phoneelem["href"][5:-1]
   result = SubwayLocation(found_name.text, "{}/{}".format(URL, url.strip("../")), longitude, latitude, address1, address2, city, state, zipcode, country, phone)
-  print(result.output())
-  result_file.write("{}\n".format(result.output()))
-
+  #print(result.name)
   return result
+
+def spawn_spiders(baseurl, search_links, fullurl):
+  start = time.perf_counter()
+  spiders = [executor.submit(get_links, baseurl, link) for link in search_links]
+  results = []
+  for spi in concurrent.futures.as_completed(spiders):
+    results.append(spi.result())
+  end = time.perf_counter()
+  print(f'BATCH FINISHED IN "{round(end-start, 10)}" SECONDS - {fullurl}')
+  return results
 
 def get_links(baseurl, url):
   fullurl = "{}/{}".format(baseurl, url)
   page = requests.get(fullurl)
   if page.status_code < 200 or page.status_code >= 300:
-    print("[{}] -------- '{}'".format(page.status_code, fullurl))
     return []
   #print(fullurl)
   soup = BeautifulSoup(page.content, "html.parser")
   found_links = [x["href"] for x in soup.find_all(class_="Directory-listLink")]
-  results = []
   if len(found_links) > 0:
     # recurse to directory page
-    #print("directory {}".format(url))
-    results = [get_links(baseurl, x) for x in found_links]
+    return spawn_spiders(baseurl, found_links, fullurl)
   else:
     found_teasers = [x["href"] for x in soup.select(".Directory-listTeaser .Teaser-title")]
     if len(found_teasers) > 0:
       # recurse final page
       #print("teasers {}".format(url))
-      results = [get_links(baseurl, x) for x in found_teasers]
+      return spawn_spiders(baseurl, found_teasers, fullurl)
     else:
       #print("final {}".format(url))
-      results = [parse_location(soup, url)]
-  return results
+      return [parse_location(soup, url)]
 
-result_file.write(SubwayLocation.names())
-result_file.write("\n")
-results = get_links(URL, "")
-result_file.close()
+if __name__ == '__main__':
+  start = time.perf_counter()
+  results = spawn_spiders(URL, [""], "base :)")
+  end = time.perf_counter()
+  print(f'Finished in {end-start} second(s)') 
+
+  result_file = open(OUTPUT_FILE, "w")
+  result_file.write(SubwayLocation.names())
+  result_file.write("\n")
+  for res in results:
+    result_file.write(res.output())
+    result_file.write("\n")
+  result_file.close()
+  executor.shutdown()
